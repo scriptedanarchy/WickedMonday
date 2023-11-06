@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Deploy Lambda function to check AWS instances and set alarms'
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: 'LambdaExecutionPolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'ec2:DescribeInstances'
+                  - 'ec2:DescribeRegions'
+                  - 'cloudwatch:PutMetricAlarm'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'sns:Publish'
+                # Specify the ARN of the SNS topic here
+                Resource: 'arn:aws:sns:region:account-id:topicname'
+
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: 'index.handler' # Assuming the Python code is defined in a file named index.py with a handler function
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: 'python3.8'
+      Code:
+        ZipFile: |
+          # Insert your Python code here, making sure it's formatted correctly
+          # and adheres to the Lambda handler requirements.
+      Timeout: 300 # Timeout in seconds
+
+  LambdaSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: 'rate(24 hours)'
+      Targets:
+        - Arn: !GetAtt LambdaFunction.Arn
+          Id: 'LambdaTarget'
+          Input: '{}'
+
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaFunction
+      Action: 'lambda:InvokeFunction'
+      Principal: 'events.amazonaws.com'
+      SourceArn: !GetAtt LambdaSchedule.Arn
+
+Outputs:
+  LambdaFunctionName:
+    Description: 'Name of the Lambda function'
+    Value: !Ref LambdaFunction
+  LambdaFunctionARN:
+    Description: 'ARN of the Lambda function'
+    Value: !GetAtt LambdaFunction.Arn
