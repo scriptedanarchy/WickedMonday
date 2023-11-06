@@ -1,6 +1,14 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: 'Deploy Lambda function to check AWS instances and set alarms'
 
+Parameters:
+  S3Bucket:
+    Type: String
+    Description: The S3 bucket where the Lambda function code is stored.
+  S3Key:
+    Type: String
+    Description: The S3 key (file path) for the Lambda function code ZIP file.
+
 Resources:
   LambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -30,17 +38,21 @@ Resources:
                   - 'sns:Publish'
                 # Specify the ARN of the SNS topic here
                 Resource: 'arn:aws:sns:region:account-id:topicname'
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                # Specify the S3 bucket ARN here, and add /* to allow access to all objects within the bucket
+                Resource: !Sub 'arn:aws:s3:::${S3Bucket}/*'
 
   LambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
-      Handler: 'index.handler' # Assuming the Python code is defined in a file named index.py with a handler function
+      Handler: 'index.handler' # This should match the handler in your Python script
       Role: !GetAtt LambdaExecutionRole.Arn
       Runtime: 'python3.8'
       Code:
-        ZipFile: |
-          # Insert your Python code here, making sure it's formatted correctly
-          # and adheres to the Lambda handler requirements.
+        S3Bucket: !Ref S3Bucket
+        S3Key: !Ref S3Key
       Timeout: 300 # Timeout in seconds
 
   LambdaSchedule:
