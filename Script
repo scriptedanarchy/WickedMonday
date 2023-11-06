@@ -1,0 +1,61 @@
+import boto3
+
+# Define the tag key and value you're looking for
+TAG_KEY = 'key'
+TAG_VALUE = 'value'
+ALARM_NAME_PREFIX = 'High-CPU-Alarm-'
+CPU_THRESHOLD = 90.0
+# Provide your SNS topic ARN here
+SNS_TOPIC_ARN = 'arn:aws:sns:region:account-id:topicname'
+
+# Initialize a session using your credentials
+session = boto3.Session()
+
+# Get a list of all available regions for EC2
+ec2_client = session.client('ec2')
+regions = [region['RegionName'] for region in ec2_client.describe_regions()['Regions']]
+
+# Function to create CloudWatch alarm
+def create_alarm(region_name, instance_id, sns_topic_arn):
+    cloudwatch_client = session.client('cloudwatch', region_name=region_name)
+    cloudwatch_client.put_metric_alarm(
+        AlarmName=f'{ALARM_NAME_PREFIX}{instance_id}',
+        ComparisonOperator='GreaterThanThreshold',
+        EvaluationPeriods=1,
+        MetricName='CPUUtilization',
+        Namespace='AWS/EC2',
+        Period=600,  # 10 minutes
+        Statistic='Average',
+        Threshold=CPU_THRESHOLD,
+        ActionsEnabled=True,
+        AlarmDescription='Alarm when server CPU exceeds 90%',
+        AlarmActions=[
+            sns_topic_arn,  # SNS topic ARN to notify
+        ],
+        Dimensions=[
+            {
+              'Name': 'InstanceId',
+              'Value': instance_id
+            },
+        ],
+        Unit='Percent'
+    )
+    print(f'Alarm {ALARM_NAME_PREFIX}{instance_id} created in {region_name} with SNS topic {sns_topic_arn}')
+
+# Iterate over all regions
+for region in regions:
+    ec2 = session.client('ec2', region_name=region)
+    
+    # Describe all EC2 instances in the region
+    instances = ec2.describe_instances(
+        Filters=[
+            {'Name': f'tag:{TAG_KEY}', 'Values': [TAG_VALUE]}
+        ]
+    )
+    
+    # Check each instance for the tag and create an alarm
+    for reservation in instances['Reservations']:
+        for instance in reservation['Instances']:
+            create_alarm(region, instance['InstanceId'], SNS_TOPIC_ARN)
+
+print('Completed checking all regions.')
