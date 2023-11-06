@@ -3,7 +3,8 @@ import boto3
 # Define the tag key and value you're looking for
 TAG_KEY = 'key'
 TAG_VALUE = 'value'
-ALARM_NAME_PREFIX = 'High-CPU-Alarm-'
+CPU_ALARM_NAME_PREFIX = 'High-CPU-Alarm-'
+INSTANCE_STATE_ALARM_NAME_PREFIX = 'Instance-State-Alarm-'
 CPU_THRESHOLD = 90.0
 # Provide your SNS topic ARN here
 SNS_TOPIC_ARN = 'arn:aws:sns:region:account-id:topicname'
@@ -15,11 +16,11 @@ session = boto3.Session()
 ec2_client = session.client('ec2')
 regions = [region['RegionName'] for region in ec2_client.describe_regions()['Regions']]
 
-# Function to create CloudWatch alarm
-def create_alarm(region_name, instance_id, sns_topic_arn):
+# Function to create a CPU utilization CloudWatch alarm
+def create_cpu_alarm(region_name, instance_id, sns_topic_arn):
     cloudwatch_client = session.client('cloudwatch', region_name=region_name)
     cloudwatch_client.put_metric_alarm(
-        AlarmName=f'{ALARM_NAME_PREFIX}{instance_id}',
+        AlarmName=f'{CPU_ALARM_NAME_PREFIX}{instance_id}',
         ComparisonOperator='GreaterThanThreshold',
         EvaluationPeriods=1,
         MetricName='CPUUtilization',
@@ -29,18 +30,31 @@ def create_alarm(region_name, instance_id, sns_topic_arn):
         Threshold=CPU_THRESHOLD,
         ActionsEnabled=True,
         AlarmDescription='Alarm when server CPU exceeds 90%',
-        AlarmActions=[
-            sns_topic_arn,  # SNS topic ARN to notify
-        ],
-        Dimensions=[
-            {
-              'Name': 'InstanceId',
-              'Value': instance_id
-            },
-        ],
+        AlarmActions=[sns_topic_arn],
+        Dimensions=[{'Name': 'InstanceId', 'Value': instance_id}],
         Unit='Percent'
     )
-    print(f'Alarm {ALARM_NAME_PREFIX}{instance_id} created in {region_name} with SNS topic {sns_topic_arn}')
+    print(f'CPU alarm {CPU_ALARM_NAME_PREFIX}{instance_id} created in {region_name}')
+
+# Function to create an instance state CloudWatch alarm
+def create_instance_state_alarm(region_name, instance_id, sns_topic_arn):
+    cloudwatch_client = session.client('cloudwatch', region_name=region_name)
+    cloudwatch_client.put_metric_alarm(
+        AlarmName=f'{INSTANCE_STATE_ALARM_NAME_PREFIX}{instance_id}',
+        ComparisonOperator='GreaterThanThreshold',
+        EvaluationPeriods=2,  # Two consecutive periods
+        MetricName='StatusCheckFailed_Instance',
+        Namespace='AWS/EC2',
+        Period=60,  # 1 minute
+        Statistic='Maximum',
+        Threshold=0,
+        ActionsEnabled=True,
+        AlarmDescription='Alarm when instance state check fails',
+        AlarmActions=[sns_topic_arn],
+        Dimensions=[{'Name': 'InstanceId', 'Value': instance_id}],
+        Unit='Count'
+    )
+    print(f'Instance state alarm {INSTANCE_STATE_ALARM_NAME_PREFIX}{instance_id} created in {region_name}')
 
 # Iterate over all regions
 for region in regions:
@@ -48,14 +62,14 @@ for region in regions:
     
     # Describe all EC2 instances in the region
     instances = ec2.describe_instances(
-        Filters=[
-            {'Name': f'tag:{TAG_KEY}', 'Values': [TAG_VALUE]}
-        ]
+        Filters=[{'Name': f'tag:{TAG_KEY}', 'Values': [TAG_VALUE]}]
     )
     
-    # Check each instance for the tag and create an alarm
+    # Check each instance for the tag and create alarms
     for reservation in instances['Reservations']:
         for instance in reservation['Instances']:
-            create_alarm(region, instance['InstanceId'], SNS_TOPIC_ARN)
+            instance_id = instance['InstanceId']
+            create_cpu_alarm(region, instance_id, SNS_TOPIC_ARN)
+            create_instance_state_alarm(region, instance_id, SNS_TOPIC_ARN)
 
-print('Completed checking all regions.')
+print('Completed checking all regions and setting alarms.')
