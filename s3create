@@ -1,0 +1,56 @@
+import boto3
+from botocore.exceptions import NoCredentialsError
+
+# Initialize a session using Amazon S3
+s3_client = boto3.client('s3')
+
+# Specify the bucket name
+bucket_name = 'cwalerts'
+
+# Create the S3 bucket
+try:
+    # Create the bucket with server-side encryption enabled
+    s3_client.create_bucket(Bucket=bucket_name, CreateBucketConfiguration={'LocationConstraint': 'us-west-2'})
+    # Enable the bucket encryption
+    s3_client.put_bucket_encryption(
+        Bucket=bucket_name,
+        ServerSideEncryptionConfiguration={
+            'Rules': [{
+                'ApplyServerSideEncryptionByDefault': {
+                    'SSEAlgorithm': 'AES256'
+                }
+            }]
+        }
+    )
+
+    # Update the bucket policy to only allow Lambda access
+    bucket_policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "AddPerm",
+                "Effect": "Allow",
+                "Principal": {
+                    "Service": "lambda.amazonaws.com"
+                },
+                "Action": "s3:*",
+                "Resource": [
+                    f"arn:aws:s3:::{bucket_name}",
+                    f"arn:aws:s3:::{bucket_name}/*"
+                ]
+            }
+        ]
+    }
+
+    # Set the new policy on the specified bucket
+    s3_client.put_bucket_policy(Bucket=bucket_name, Policy=json.dumps(bucket_policy))
+
+    # Upload a file to the bucket
+    s3_client.upload_file('createcw.zip', bucket_name, 'createcw.zip')
+    print('File uploaded successfully to the S3 bucket.')
+
+except NoCredentialsError:
+    print('Credentials not available')
+
+except Exception as e:
+    print(e)
